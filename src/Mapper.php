@@ -7,12 +7,18 @@ use Coinbase\Wallet\Exception\LogicException;
 use Coinbase\Wallet\Exception\RuntimeException;
 use Coinbase\Wallet\Resource\Account;
 use Coinbase\Wallet\Resource\Address;
+use Coinbase\Wallet\Resource\Application;
 use Coinbase\Wallet\Resource\BitcoinAddress;
+use Coinbase\Wallet\Resource\BitcoinCashAddress;
 use Coinbase\Wallet\Resource\Buy;
 use Coinbase\Wallet\Resource\Checkout;
 use Coinbase\Wallet\Resource\CurrentUser;
 use Coinbase\Wallet\Resource\Deposit;
 use Coinbase\Wallet\Resource\Email;
+use Coinbase\Wallet\Resource\EthereumNetwork;
+use Coinbase\Wallet\Resource\EthrereumAddress;
+use Coinbase\Wallet\Resource\LitecoinAddress;
+use Coinbase\Wallet\Resource\LitecoinNetwork;
 use Coinbase\Wallet\Resource\Merchant;
 use Coinbase\Wallet\Resource\Order;
 use Coinbase\Wallet\Resource\PaymentMethod;
@@ -22,10 +28,14 @@ use Coinbase\Wallet\Resource\Sell;
 use Coinbase\Wallet\Resource\Transaction;
 use Coinbase\Wallet\Resource\User;
 use Coinbase\Wallet\Resource\Withdrawal;
+use Coinbase\Wallet\Resource\Notification;
+use Coinbase\Wallet\Resource\BitcoinNetwork;
+use Coinbase\Wallet\Resource\BitcoinCashNetwork;
 use Coinbase\Wallet\Value\Fee;
 use Coinbase\Wallet\Value\Money;
 use Coinbase\Wallet\Value\Network;
 use Psr\Http\Message\ResponseInterface;
+
 
 class Mapper
 {
@@ -113,16 +123,16 @@ class Mapper
     {
         // validate
         $to = $transaction->getTo();
-        if ($to && !$to instanceof Email && !$to instanceof BitcoinAddress && !$to instanceof Account) {
+        if ($to && !$to instanceof Email && !$to instanceof BitcoinAddress && !$to instanceof LitecoinAddress && !$to instanceof EthrereumAddress && !$to instanceof BitcoinCashAddress  && !$to instanceof Account) {
             throw new LogicException(
-                'The Coinbase API only accepts transactions to an account, email, or bitcoin address'
+                'The Coinbase API only accepts transactions to an account, email, bitcoin address, bitcoin cash address, litecoin address, or ethereum address'
             );
         }
 
         // filter
         $data = array_intersect_key(
             $this->extractData($transaction),
-            array_flip(['type', 'to', 'amount', 'description'])
+            array_flip(['type', 'to', 'amount', 'description', 'fee'])
         );
 
         // to
@@ -381,7 +391,7 @@ class Mapper
         // filter
         $data = array_intersect_key(
             $this->extractData($order),
-            array_flip(['amount', 'name', 'description', 'metadata'])
+            array_flip(['amount', 'name', 'description', 'notifications_url', 'metadata'])
         );
 
         // currency
@@ -416,7 +426,7 @@ class Mapper
     {
         $keys = [
             'amount', 'name', 'description', 'type', 'style',
-            'customer_defined_amount', 'amount_presets', 'success_url',
+            'customer_defined_amount', 'amount_presets', 'notifications_url', 'success_url',
             'cancel_url', 'auto_redirect', 'collect_shipping_address',
             'collect_email', 'collect_phone_number', 'collect_country',
             'metadata',
@@ -439,6 +449,20 @@ class Mapper
         }
 
         return $data;
+    }
+
+    // notifications
+
+    /** @return ResourceCollection */
+    public function toNotifications(ResponseInterface $response)
+    {
+        return $this->toCollection($response, 'injectNotification');
+    }
+
+    /** @return Notification */
+    public function toNotification(ResponseInterface $response, Notification $notification = null)
+    {
+        return $this->injectNotification($this->decode($response)['data'], $notification);
     }
 
     // misc
@@ -469,10 +493,14 @@ class Mapper
     {
         $data = $this->decode($response);
 
-        $coll = new ResourceCollection(
-            $data['pagination']['previous_uri'],
-            $data['pagination']['next_uri']
-        );
+        if (isset($data['pagination'])) {
+            $coll = new ResourceCollection(
+                $data['pagination']['previous_uri'],
+                $data['pagination']['next_uri']
+            );
+        } else {
+            $coll = new ResourceCollection();
+        }
 
         foreach ($data['data'] as $resource) {
             $coll->add($this->$method($resource));
@@ -494,6 +522,11 @@ class Mapper
     private function injectAddress(array $data, Address $address = null)
     {
         return $this->injectResource($data, $address ?: new Address());
+    }
+
+    private function injectApplication(array $data, Application $application = null)
+    {
+        return $this->injectResource($data, $application ?: new Application());
     }
 
     private function injectTransaction(array $data, Transaction $transaction = null)
@@ -539,6 +572,11 @@ class Mapper
     private function injectCheckout(array $data, Checkout $checkout = null)
     {
         return $this->injectResource($data, $checkout ?: new Checkout());
+    }
+
+    public function injectNotification(array $data, Notification $notification = null)
+    {
+        return $this->injectResource($data, $notification ?: new Notification());
     }
 
     private function injectResource(array $data, Resource $resource)
@@ -627,7 +665,7 @@ class Mapper
 
         if ('network' === $key && isset($value['status'])) {
             // network
-            return new Network($value['status'], isset($value['hash']) ? $value['hash'] : null);
+            return new Network($value['status'], isset($value['hash']) ? $value['hash'] : null, isset($value['transaction_fee']) ? $value['transaction_fee'] : null);
         }
 
         if (isset($value['type']) && isset($value['amount']) && isset($value['amount']['amount']) && isset($value['amount']['currency'])) {
@@ -672,6 +710,30 @@ class Mapper
             // bitcoin address
             return [
                 'resource' => ResourceType::BITCOIN_ADDRESS,
+                'address' => $value->getAddress(),
+            ];
+        }
+
+        if($value instanceof BitcoinCashAddress){
+            // bitcoin-cash address
+            return [
+                'resource' => ResourceType::BITCOIN_CASH_ADDRESS,
+                'address' => $value->getAddress(),
+            ];
+        }
+
+        if($value instanceof LitecoinAddress){
+            // litecoin address
+            return [
+                'resource' => ResourceType::LITECOIN_ADDRESS,
+                'address' => $value->getAddress(),
+            ];
+        }
+
+        if($value instanceof EthrereumAddress){
+            // ethereum address
+            return [
+                'resource' => ResourceType::ETHEREUM_ADDRESS,
                 'address' => $value->getAddress(),
             ];
         }
@@ -733,6 +795,8 @@ class Mapper
                 return $expanded ? $this->injectAccount($data) : new Account($data['resource_path']);
             case ResourceType::ADDRESS:
                 return $expanded ? $this->injectAddress($data) : new Address($data['resource_path']);
+            case ResourceType::APPLICATION:
+                return $expanded ? $this->injectApplication($data) : new Application($data['resource_path']);
             case ResourceType::BITCOIN_ADDRESS:
                 return new BitcoinAddress($data['address']);
             case ResourceType::BUY:
@@ -757,6 +821,22 @@ class Mapper
                 return $expanded ? $this->injectUser($data) : new User($data['resource_path']);
             case ResourceType::WITHDRAWAL:
                 return $expanded ? $this->injectWithdrawal($data) : new Withdrawal($data['resource_path']);
+            case ResourceType::NOTIFICATION:
+                return $expanded ? $this->injectNotification($data) : new Notification($data['resource_path']);
+            case ResourceType::BITCOIN_NETWORK:
+                return new BitcoinNetwork();
+            case ResourceType::BITCOIN_CASH_NETWORK:
+                return new BitcoinCashNetwork();
+            case ResourceType::LITECOIN_NETWORK:
+                return new LitecoinNetwork();
+            case ResourceType::ETHEREUM_NETWORK:
+                return new EthereumNetwork();
+            case ResourceType::LITECOIN_ADDRESS:
+                return $expanded ? $this->injectAddress($data) : new Address($data['resource_path']);
+            case ResourceType::ETHEREUM_ADDRESS:
+                return $expanded ? $this->injectAddress($data) : new Address($data['resource_path']);
+            case ResourceType::BITCOIN_CASH_ADDRESS:
+                return $expanded ? $this->injectAddress($data) : new Address($data['resource_path']);
             default:
                 throw new RuntimeException('Unrecognized resource type: '.$type);
         }

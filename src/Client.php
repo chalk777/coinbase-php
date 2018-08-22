@@ -19,6 +19,7 @@ use Coinbase\Wallet\Resource\Sell;
 use Coinbase\Wallet\Resource\Transaction;
 use Coinbase\Wallet\Resource\User;
 use Coinbase\Wallet\Resource\Withdrawal;
+use Coinbase\Wallet\Resource\Notification;
 
 /**
  * A client for interacting with the Coinbase API.
@@ -36,7 +37,7 @@ use Coinbase\Wallet\Resource\Withdrawal;
  */
 class Client
 {
-    const VERSION = '2.0.0-dev';
+    const VERSION = '2.8.0';
 
     private $http;
     private $mapper;
@@ -93,36 +94,63 @@ class Client
         return $this->getAndMapData('/v2/currencies', $params);
     }
 
-    public function getExchangeRates(array $params = [])
+    public function getExchangeRates($currency = null, array $params = [])
     {
+        if ($currency) {
+            $params['currency'] = $currency;
+        }
+
         return $this->getAndMapData('/v2/exchange-rates', $params);
     }
 
     public function getBuyPrice($currency = null, array $params = [])
     {
-        if ($currency) {
-            $params['currency'] = $currency;
+        // If AAA-BBB format, use it. If fiat only given, use BTC-XXX.
+        // If undefined, use BTC-USD.
+        if (strpos($currency, '-') !== false) {
+            $pair = $currency;
+        } else if ($currency) {
+            $pair = 'BTC-' . $currency;
+        } else {
+            $pair = 'BTC-USD';
         }
 
-        return $this->getAndMapMoney('/v2/prices/buy', $params);
+        return $this->getAndMapMoney('/v2/prices/' . $pair . '/buy', $params);
     }
 
     public function getSellPrice($currency = null, array $params = [])
     {
-        if ($currency) {
-            $params['currency'] = $currency;
+        if (strpos($currency, '-') !== false) {
+            $pair = $currency;
+        } else if ($currency) {
+            $pair = 'BTC-' . $currency;
+        } else {
+            $pair = 'BTC-USD';
         }
 
-        return $this->getAndMapMoney('/v2/prices/sell', $params);
+        return $this->getAndMapMoney('/v2/prices/' . $pair . '/sell', $params);
     }
 
     public function getSpotPrice($currency = null, array $params = [])
+    {
+        if (strpos($currency, '-') !== false) {
+            $pair = $currency;
+        } else if ($currency) {
+            $pair = 'BTC-' . $currency;
+        } else {
+            $pair = 'BTC-USD';
+        }
+
+        return $this->getAndMapMoney('/v2/prices/' . $pair . '/spot', $params);
+    }
+
+    public function getHistoricPrices($currency = null, array $params = [])
     {
         if ($currency) {
             $params['currency'] = $currency;
         }
 
-        return $this->getAndMapMoney('/v2/prices/spot', $params);
+        return $this->getAndMapData('/v2/prices/historic', $params);
     }
 
     public function getTime(array $params = [])
@@ -284,7 +312,7 @@ class Client
     public function createAccountAddress(Account $account, Address $address, array $params = [])
     {
         $data = $this->mapper->fromAddress($address);
-        $this->postAndMap($account->getResourcePath().'/addresses', $data + $params, 'toAddress', $address);
+        return $this->postAndMap($account->getResourcePath().'/addresses', $data + $params, 'toAddress', $address);
     }
 
     // transactions
@@ -677,6 +705,82 @@ class Client
     {
         $data = $this->mapper->fromCheckout($checkout);
         $this->postAndMap('/v2/checkouts', $data + $params, 'toCheckout', $checkout);
+    }
+
+    /**
+     * Lists notifications where the current user was the subscriber.
+     *
+     * Supports pagination parameters.
+     *
+     * @return ResourceCollection|Notification[]
+     */
+    public function getNotifications(array $params = [])
+    {
+        return $this->getAndMapCollection('/v2/notifications', $params, 'toNotifications');
+    }
+
+    public function loadNextNotifications(ResourceCollection $notifications, array $params = [])
+    {
+        $this->loadNext($notifications, $params, 'toNotifications');
+    }
+
+    /** @return Notification */
+    public function getNotification($notificationId, array $params = [])
+    {
+        return $this->getAndMap('/v2/notifications/'.$notificationId, $params, 'toNotification');
+    }
+
+    public function refreshNotification(Notification $notification, array $params = [])
+    {
+        $this->getAndMap($notification->getResourcePath(), $params, 'toNotification', $notification);
+    }
+
+    /**
+     * Create a Notification object from the body of a notification webhook
+     *
+     * @return Notification
+     */
+    public function parseNotification($webhook_body)
+    {
+        $data = json_decode($webhook_body, true);
+        return $this->mapper->injectNotification($data);
+    }
+
+    /**
+     * Verifies the authenticity of a merchant callback from Coinbase
+     *
+     * @return Boolean
+     */
+    public function verifyCallback($body, $signature)
+    {
+        $signature_buffer = base64_decode( $signature );
+        return (1 == openssl_verify($body, $signature_buffer, self::getCallbackPublicKey(), OPENSSL_ALGO_SHA256));
+    }
+
+    /**
+     * Return the PEM encoded public RSA key for merchant callbacks
+     *
+     * @return String
+     */
+    public static function getCallbackPublicKey()
+    {
+        $key = <<<EOD
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA9MsJBuXzFGIh/xkAA9Cy
+QdZKRerV+apyOAWY7sEYV/AJg+AX/tW2SHeZj+3OilNYm5DlBi6ZzDboczmENrFn
+mUXQsecsR5qjdDWb2qYqBkDkoZP02m9o9UmKObR8coKW4ZBw0hEf3fP9OEofG2s7
+Z6PReWFyQffnnecwXJoN22qjjsUtNNKOOo7/l+IyGMVmdzJbMWQS4ybaU9r9Ax0J
+4QUJSS/S4j4LP+3Z9i2DzIe4+PGa4Nf7fQWLwE45UUp5SmplxBfvEGwYNEsHvmRj
+usIy2ZunSO2CjJ/xGGn9+/57W7/SNVzk/DlDWLaN27hUFLEINlWXeYLBPjw5GGWp
+ieXGVcTaFSLBWX3JbOJ2o2L4MxinXjTtpiKjem9197QXSVZ/zF1DI8tRipsgZWT2
+/UQMqsJoVRXHveY9q9VrCLe97FKAUiohLsskr0USrMCUYvLU9mMw15hwtzZlKY8T
+dMH2Ugqv/CPBuYf1Bc7FAsKJwdC504e8kAUgomi4tKuUo25LPZJMTvMTs/9IsRJv
+I7ibYmVR3xNsVEpupdFcTJYGzOQBo8orHKPFn1jj31DIIKociCwu6m8ICDgLuMHj
+7bUHIlTzPPT7hRPyBQ1KdyvwxbguqpNhqp1hG2sghgMr0M6KMkUEz38JFElsVrpF
+4z+EqsFcIZzjkSG16BjjjTkCAwEAAQ==
+-----END PUBLIC KEY-----
+EOD;
+        return $key;
     }
 
     /**

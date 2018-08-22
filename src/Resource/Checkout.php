@@ -30,6 +30,9 @@ class Checkout extends Resource
     /** @var Money */
     private $amount;
 
+    /** @var string */
+    private $text;
+
     /**
      * @var string
      * @see CheckoutStyle
@@ -41,6 +44,9 @@ class Checkout extends Resource
 
     /** @var array */
     private $amountPresets;
+
+    /** @var string */
+    private $notificationsUrl;
 
     /** @var string */
     private $successUrl;
@@ -94,6 +100,21 @@ class Checkout extends Resource
         return $this->embedCode;
     }
 
+    public function getEmbedHtml()
+    {
+        if (empty($this->embedCode))
+        {
+            throw new LogicException(
+                'The Checkout has not been created ($client->createCheckout($checkout)).'
+            );
+        }
+
+        $code_attribute = "data-code=\"$this->embedCode\"";
+        $text_attrbute = empty($this->text) ? "" : "data-button-text=\"$this->text\"";
+
+        return "<div class=\"coinbase-button\" $code_attribute $text_attrbute></div><script src=\"https://www.coinbase.com/assets/button.js\" type=\"text/javascript\"></script>";
+    }
+
     public function getType()
     {
         return $this->type;
@@ -102,6 +123,16 @@ class Checkout extends Resource
     public function setType($type)
     {
         $this->type = $type;
+    }
+
+    public function getText()
+    {
+        return $this->text;
+    }
+
+    public function setText($text)
+    {
+        $this->text = $text;
     }
 
     public function getName()
@@ -162,6 +193,16 @@ class Checkout extends Resource
     public function setAmountPresets(array $amountPresets)
     {
         $this->amountPresets = $amountPresets;
+    }
+
+    public function getNotificationsUrl()
+    {
+        return $this->notificationsUrl;
+    }
+
+    public function setNotificationsUrl($notificationsUrl)
+    {
+        $this->notificationsUrl = $notificationsUrl;
     }
 
     public function getSuccessUrl()

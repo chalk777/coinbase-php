@@ -11,6 +11,7 @@ use Coinbase\Wallet\Exception\InvalidTokenException;
 use Coinbase\Wallet\Exception\RevokedTokenException;
 use Coinbase\Wallet\Resource\Account;
 use Coinbase\Wallet\Resource\Address;
+use Coinbase\Wallet\Resource\Notification;
 use Coinbase\Wallet\Resource\CurrentUser;
 use Coinbase\Wallet\Resource\PaymentMethod;
 use Coinbase\Wallet\Resource\ResourceCollection;
@@ -33,6 +34,8 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
                 'Environment variables CB_API_KEY and/or CB_API_SECRET are missing'
             );
         }
+
+        date_default_timezone_set('America/New_York');
     }
 
     protected function setUp()
@@ -41,8 +44,6 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
             $_SERVER['CB_API_KEY'],
             $_SERVER['CB_API_SECRET']
         );
-
-        $configuration->setApiUrl(Configuration::SANDBOX_API_URL);
 
         $this->client = Client::create($configuration);
     }
@@ -67,7 +68,6 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
         }
 
         $configuration = Configuration::oauth($_SERVER['CB_OAUTH_ACCESS_TOKEN']);
-        $configuration->setApiUrl(Configuration::SANDBOX_API_URL);
         $client = Client::create($configuration);
 
         try {
@@ -93,7 +93,6 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
             $_SERVER['CB_OAUTH_REFRESH_TOKEN']
         );
 
-        $configuration->setApiUrl(Configuration::SANDBOX_API_URL);
         $client = Client::create($configuration);
 
         try {
@@ -112,28 +111,71 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
 
     public function testGetExchangeRates()
     {
-        $data = $this->client->getExchangeRates();
+        $data = $this->client->getExchangeRates('CAD');
 
         $this->assertInternalType('array', $data);
+        $this->assertEquals('CAD', $data['currency']);
     }
 
-    public function testGetBuyPrice()
+    public function testGetBuyPrice1()
     {
         $price = $this->client->getBuyPrice();
 
         $this->assertInstanceOf(Money::class, $price);
     }
 
-    public function testGetSellPrice()
+    public function testGetBuyPrice2()
+    {
+        $price = $this->client->getBuyPrice('USD');
+
+        $this->assertInstanceOf(Money::class, $price);
+    }
+
+    public function testGetBuyPrice3()
+    {
+        $price = $this->client->getBuyPrice('ETH-USD');
+
+        $this->assertInstanceOf(Money::class, $price);
+    }
+
+    public function testGetSellPrice1()
     {
         $price = $this->client->getSellPrice();
 
         $this->assertInstanceOf(Money::class, $price);
     }
 
-    public function testGetSpotPrice()
+    public function testGetSellPrice2()
+    {
+        $price = $this->client->getSellPrice('USD');
+
+        $this->assertInstanceOf(Money::class, $price);
+    }
+
+    public function testGetSellPrice3()
+    {
+        $price = $this->client->getSellPrice('ETH-USD');
+
+        $this->assertInstanceOf(Money::class, $price);
+    }
+
+    public function testGetSpotPrice1()
     {
         $price = $this->client->getSpotPrice();
+
+        $this->assertInstanceOf(Money::class, $price);
+    }
+
+    public function testGetSpotPrice2()
+    {
+        $price = $this->client->getSpotPrice('USD');
+
+        $this->assertInstanceOf(Money::class, $price);
+    }
+
+    public function testGetSpotPrice3()
+    {
+        $price = $this->client->getSpotPrice('ETH-USD');
 
         $this->assertInstanceOf(Money::class, $price);
     }
@@ -264,6 +306,12 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
         $this->assertEmpty($transactions);
     }
 
+    public function testGetAccountTransactions()
+    {
+        $account      = $this->client->getPrimaryAccount();
+        $transactions = $this->client->getAccountTransactions($account);
+    }
+
     public function testGetPaymentMethods()
     {
         $paymentMethods = $this->client->getPaymentMethods();
@@ -274,6 +322,25 @@ class ClientIntegrationTest extends \PHPUnit_Framework_TestCase
         }
 
         $this->assertInstanceOf(PaymentMethod::class, $paymentMethods[0]);
+    }
+
+    public function testGetHistoricPrices() {
+        $historicPrices = $this->client->getHistoricPrices('CAD');
+
+        $this->assertEquals("array", gettype($historicPrices));
+        $this->assertEquals('CAD', $historicPrices['currency']);
+        $this->assertEquals(365, sizeof($historicPrices['prices']));
+    }
+
+    public function testGetNotifications() {
+        $notifications = $this->client->getNotifications();
+        $this->assertInstanceOf(ResourceCollection::class, $notifications);
+
+        if (!isset($notifications[0])) {
+            $this->markTestSkipped('User has no notifications');
+        }
+
+        $this->assertInstanceOf(Notification::class, $notifications[0]);
     }
 
     // private
